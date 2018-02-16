@@ -25,7 +25,11 @@ As the container is published on docker hub - https://hub.docker.com/r/keviny101
 
 `docker pull keviny101/aihackathon-anacondawithwine`
 
-This will pull down the container and execute Jupyter Notebook. Using the instructions in the container, connect to your box using the url provided with the token and open the wine.ipynb file and away you go!!
+This will pull down the container. Now you need to run the container using the following command which will start the Jupyter Notebook.
+
+ `docker run -p 8888:8888 -i -t keviny101/aihackathon-anacondawithwine`
+
+Using the instructions in the container, connect to your box using the url provided with the token and open the wine.ipynb file and away you go!!
 
 If you are connecting to the Jupyter notebook remotely, you'll need to replace the internal (loopback) address with the public ip address for your server.
 
