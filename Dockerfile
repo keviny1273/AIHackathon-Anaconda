@@ -20,8 +20,12 @@ RUN apt-get install -y curl grep sed dpkg && \
     rm tini.deb && \
     apt-get clean
 
-RUN /opt/conda/bin/pip install tensorflow
-RUN /opt/conda/bin/pip install numpy --upgrade
+# Install some additional packages
+RUN /opt/conda/bin/conda install -c anaconda tensorflow -y
+RUN /opt/conda/bin/conda update numpy -y
+#RUN /opt/conda/bin/conda install mathjax -y
+#RUN /opt/conda/bin/conda install -c conda-forge ipywidgets
+#RUN /opt/conda/bin/jupyter nbextension enable --py widgetsnbextension
 
 RUN mkdir /opt/notebooks
 
@@ -39,5 +43,6 @@ RUN chmod 777 start_jupyter.sh
 ENV PATH /opt/conda/bin:$PATH
 
 ENTRYPOINT [ "/usr/bin/tini", "--" ]
-CMD [ "/opt/start/start_jupyter.sh" ]
 
+CMD [ "/opt/start/start_jupyter.sh" ]
+#CMD [ "/bin/bash" ]
