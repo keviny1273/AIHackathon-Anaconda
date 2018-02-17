@@ -23,9 +23,6 @@ RUN apt-get install -y curl grep sed dpkg && \
 # Install some additional packages
 RUN /opt/conda/bin/conda install -c anaconda tensorflow -y
 RUN /opt/conda/bin/conda update numpy -y
-#RUN /opt/conda/bin/conda install mathjax -y
-#RUN /opt/conda/bin/conda install -c conda-forge ipywidgets
-#RUN /opt/conda/bin/jupyter nbextension enable --py widgetsnbextension
 
 RUN mkdir /opt/notebooks
 
