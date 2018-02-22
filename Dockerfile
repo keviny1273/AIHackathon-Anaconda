@@ -41,5 +41,7 @@ ENV PATH /opt/conda/bin:$PATH
 
 ENTRYPOINT [ "/usr/bin/tini", "--" ]
 
-CMD [ "/opt/start/start_jupyter.sh" ]
-#CMD [ "/bin/bash" ]
+# Not sure which is best! However if we treat this as a server it can be harder to manage and re-use so we shall create a shell and allow th$
+
+#CMD [ "/opt/start/start_jupyter.sh" ]
+CMD [ "/bin/bash", "echo run ./start_jupyter.sh to start the jupyter notebook" ]
