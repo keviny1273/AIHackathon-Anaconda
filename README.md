@@ -29,6 +29,9 @@ This will pull down the container. Now you need to run the container using the f
 
  `docker run -p 8888:8888 --name anacondawithwine -i -t keviny101/aihackathon-anacondawithwine`
 
+Now to start the Jupyter Notebook, from the container command prompt
+`./start_jupyter.sh`
+
 Using the instructions in the container, connect to your box using the url provided with the token and open the wine.ipynb file and away you go!!
 
 If you are connecting to the Jupyter notebook remotely, you'll need to replace the internal (loopback) address with the public ip address for your server.
