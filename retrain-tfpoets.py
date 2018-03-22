@@ -69,9 +69,16 @@ to validate that you have gathered good training data, but if you want to deploy
 on resource-limited platforms, you can try the `--architecture` flag with a
 Mobilenet model. For example:
 
+Run floating-point version of mobilenet:
 ```bash
 python tensorflow/examples/image_retraining/retrain.py \
     --image_dir ~/flower_photos --architecture mobilenet_1.0_224
+```
+
+Run quantized version of mobilenet:
+```bash
+python tensorflow/examples/image_retraining/retrain.py \
+    --image_dir ~/flower_photos/   --architecture mobilenet_1.0_224_quantized
 ```
 
 There are 32 different Mobilenet models to choose from, with a variety of file
@@ -95,7 +102,6 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-import collections
 from datetime import datetime
 import hashlib
 import os.path
@@ -108,6 +114,8 @@ import numpy as np
 from six.moves import urllib
 import tensorflow as tf
 
+from tensorflow.contrib.quantization.python import quantized_gen_array_ops as quant_ops
+# from tensorflow.contrib.quantize.python import quant_ops
 from tensorflow.python.framework import graph_util
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.platform import gfile
@@ -141,13 +149,14 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
   if not gfile.Exists(image_dir):
     tf.logging.error("Image directory '" + image_dir + "' not found.")
     return None
-  result = collections.OrderedDict()
-  sub_dirs = [
-    os.path.join(image_dir,item)
-    for item in gfile.ListDirectory(image_dir)]
-  sub_dirs = sorted(item for item in sub_dirs
-                    if gfile.IsDirectory(item))
+  result = {}
+  sub_dirs = [x[0] for x in gfile.Walk(image_dir)]
+  # The root directory comes first, so skip it.
+  is_root_dir = True
   for sub_dir in sub_dirs:
+    if is_root_dir:
+      is_root_dir = False
+      continue
     extensions = ['jpg', 'jpeg', 'JPG', 'JPEG']
     file_list = []
     dir_name = os.path.basename(sub_dir)
@@ -271,6 +280,7 @@ def create_model_graph(model_info):
   """
   with tf.Graph().as_default() as graph:
     model_path = os.path.join(FLAGS.model_dir, model_info['model_file_name'])
+    print('Model path: ', model_path)
     with gfile.FastGFile(model_path, 'rb') as f:
       graph_def = tf.GraphDef()
       graph_def.ParseFromString(f.read())
@@ -293,7 +303,7 @@ def run_bottleneck_on_image(sess, image_data, image_data_tensor,
     sess: Current active TensorFlow Session.
     image_data: String of raw JPEG data.
     image_data_tensor: Input data layer in the graph.
-    decoded_image_tensor: Output of initial image resizing and  preprocessing.
+    decoded_image_tensor: Output of initial image resizing and preprocessing.
     resized_input_tensor: The input node of the recognition graph.
     bottleneck_tensor: Layer before the final softmax.
 
@@ -337,7 +347,10 @@ def maybe_download_and_extract(data_url):
     statinfo = os.stat(filepath)
     tf.logging.info('Successfully downloaded', filename, statinfo.st_size,
                     'bytes.')
-  tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+    print('Extracting file from ', filepath)
+    tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+  else:
+    print('Not extracting or downloading files, model already present in disk')
 
 
 def ensure_dir_exists(dir_name):
@@ -358,7 +371,7 @@ def create_bottleneck_file(bottleneck_path, image_lists, label_name, index,
                            decoded_image_tensor, resized_input_tensor,
                            bottleneck_tensor):
   """Create a single bottleneck file."""
-  tf.logging.info('Creating bottleneck at ' + bottleneck_path)
+  # tf.logging.info('Creating bottleneck at ' + bottleneck_path)
   image_path = get_image_path(image_lists, label_name, index,
                               image_dir, category)
   if not gfile.Exists(image_path):
@@ -391,9 +404,9 @@ def get_or_create_bottleneck(sess, image_lists, label_name, index, image_dir,
     label_name: Label string we want to get an image for.
     index: Integer offset of the image we want. This will be modulo-ed by the
     available number of images for the label, so it can be arbitrarily large.
-    image_dir: Root folder string  of the subfolders containing the training
+    image_dir: Root folder string of the subfolders containing the training
     images.
-    category: Name string of which  set to pull images from - training, testing,
+    category: Name string of which set to pull images from - training, testing,
     or validation.
     bottleneck_dir: Folder string holding cached files of bottleneck values.
     jpeg_data_tensor: The tensor to feed loaded jpeg data into.
@@ -476,7 +489,7 @@ def cache_bottlenecks(sess, image_lists, image_dir, bottleneck_dir,
             resized_input_tensor, bottleneck_tensor, architecture)
 
         how_many_bottlenecks += 1
-        if how_many_bottlenecks % 100 == 0:
+        if how_many_bottlenecks % 500 == 0:
           tf.logging.info(
               str(how_many_bottlenecks) + ' bottleneck files created.')
 
@@ -527,10 +540,8 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
           sess, image_lists, label_name, image_index, image_dir, category,
           bottleneck_dir, jpeg_data_tensor, decoded_image_tensor,
           resized_input_tensor, bottleneck_tensor, architecture)
-      ground_truth = np.zeros(class_count, dtype=np.float32)
-      ground_truth[label_index] = 1.0
       bottlenecks.append(bottleneck)
-      ground_truths.append(ground_truth)
+      ground_truths.append(label_index)
       filenames.append(image_name)
   else:
     # Retrieve all bottlenecks.
@@ -543,10 +554,8 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
             sess, image_lists, label_name, image_index, image_dir, category,
             bottleneck_dir, jpeg_data_tensor, decoded_image_tensor,
             resized_input_tensor, bottleneck_tensor, architecture)
-        ground_truth = np.zeros(class_count, dtype=np.float32)
-        ground_truth[label_index] = 1.0
         bottlenecks.append(bottleneck)
-        ground_truths.append(ground_truth)
+        ground_truths.append(label_index)
         filenames.append(image_name)
   return bottlenecks, ground_truths, filenames
 
@@ -598,10 +607,8 @@ def get_random_distorted_bottlenecks(
     bottleneck_values = sess.run(bottleneck_tensor,
                                  {resized_input_tensor: distorted_image_data})
     bottleneck_values = np.squeeze(bottleneck_values)
-    ground_truth = np.zeros(class_count, dtype=np.float32)
-    ground_truth[label_index] = 1.0
     bottlenecks.append(bottleneck_values)
-    ground_truths.append(ground_truth)
+    ground_truths.append(label_index)
   return bottlenecks, ground_truths
 
 
@@ -733,7 +740,7 @@ def variable_summaries(var):
 
 
 def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
-                           bottleneck_tensor_size):
+                           bottleneck_tensor_size, quantize_layer):
   """Adds a new softmax and fully-connected layer for training.
 
   We need to retrain the top layer to identify our new classes, so this function
@@ -745,10 +752,12 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
 
   Args:
     class_count: Integer of how many categories of things we're trying to
-    recognize.
+        recognize.
     final_tensor_name: Name string for the new final node that produces results.
     bottleneck_tensor: The output of the main CNN graph.
     bottleneck_tensor_size: How many entries in the bottleneck vector.
+    quantize_layer: Boolean, specifying whether the newly added layer should be
+        quantized.
 
   Returns:
     The tensors for the training and cross entropy results, and tensors for the
@@ -760,9 +769,8 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
         shape=[None, bottleneck_tensor_size],
         name='BottleneckInputPlaceholder')
 
-    ground_truth_input = tf.placeholder(tf.float32,
-                                        [None, class_count],
-                                        name='GroundTruthInput')
+    ground_truth_input = tf.placeholder(
+        tf.int64, [None], name='GroundTruthInput')
 
   # Organizing the following ops as `final_training_ops` so they're easier
   # to see in TensorBoard
@@ -771,25 +779,47 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor,
     with tf.name_scope('weights'):
       initial_value = tf.truncated_normal(
           [bottleneck_tensor_size, class_count], stddev=0.001)
-
       layer_weights = tf.Variable(initial_value, name='final_weights')
+      if quantize_layer:
+        quantized_layer_weights = quant_ops.MovingAvgQuantize(
+            layer_weights, is_training=True)
+        variable_summaries(quantized_layer_weights)
 
       variable_summaries(layer_weights)
     with tf.name_scope('biases'):
       layer_biases = tf.Variable(tf.zeros([class_count]), name='final_biases')
+      if quantize_layer:
+        quantized_layer_biases = quant_ops.MovingAvgQuantize(
+            layer_biases, is_training=True)
+        variable_summaries(quantized_layer_biases)
+
       variable_summaries(layer_biases)
+
     with tf.name_scope('Wx_plus_b'):
-      logits = tf.matmul(bottleneck_input, layer_weights) + layer_biases
-      tf.summary.histogram('pre_activations', logits)
+      if quantize_layer:
+        logits = tf.matmul(bottleneck_input,
+                           quantized_layer_weights) + quantized_layer_biases
+        logits = quant_ops.MovingAvgQuantize(
+            logits,
+            init_min=-32.0,
+            init_max=32.0,
+            is_training=True,
+            num_bits=8,
+            narrow_range=False,
+            ema_decay=0.5)
+        tf.summary.histogram('pre_activations', logits)
+      else:
+        logits = tf.matmul(bottleneck_input, layer_weights) + layer_biases
+        tf.summary.histogram('pre_activations', logits)
 
   final_tensor = tf.nn.softmax(logits, name=final_tensor_name)
+
   tf.summary.histogram('activations', final_tensor)
 
   with tf.name_scope('cross_entropy'):
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
+    cross_entropy_mean = tf.losses.sparse_softmax_cross_entropy(
         labels=ground_truth_input, logits=logits)
-    with tf.name_scope('total'):
-      cross_entropy_mean = tf.reduce_mean(cross_entropy)
+
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
 
   with tf.name_scope('train'):
@@ -814,8 +844,7 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
   with tf.name_scope('accuracy'):
     with tf.name_scope('correct_prediction'):
       prediction = tf.argmax(result_tensor, 1)
-      correct_prediction = tf.equal(
-          prediction, tf.argmax(ground_truth_tensor, 1))
+      correct_prediction = tf.equal(prediction, ground_truth_tensor)
     with tf.name_scope('accuracy'):
       evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
   tf.summary.scalar('accuracy', evaluation_step)
@@ -825,6 +854,7 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
 def save_graph_to_file(sess, graph, graph_file_name):
   output_graph_def = graph_util.convert_variables_to_constants(
       sess, graph.as_graph_def(), [FLAGS.final_tensor_name])
+
   with gfile.FastGFile(graph_file_name, 'wb') as f:
     f.write(output_graph_def.SerializeToString())
   return
@@ -858,6 +888,7 @@ def create_model_info(architecture):
     ValueError: If architecture name is unknown.
   """
   architecture = architecture.lower()
+  is_quantized = False
   if architecture == 'inception_v3':
     # pylint: disable=line-too-long
     data_url = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
@@ -902,19 +933,28 @@ def create_model_info(architecture):
             architecture)
         return None
       is_quantized = True
-    data_url = 'http://download.tensorflow.org/models/mobilenet_v1_'
-    data_url += version_string + '_' + size_string + '_frozen.tgz'
-    bottleneck_tensor_name = 'MobilenetV1/Predictions/Reshape:0'
+
+    if is_quantized:
+      data_url = 'http://download.tensorflow.org/models/mobilenet_v1_'
+      data_url += version_string + '_' + size_string + '_quantized_frozen.tgz'
+      bottleneck_tensor_name = 'MobilenetV1/Predictions/Reshape:0'
+      resized_input_tensor_name = 'Placeholder:0'
+      model_dir_name = ('mobilenet_v1_' + version_string + '_' + size_string +
+                        '_quantized_frozen')
+      model_base_name = 'quantized_frozen_graph.pb'
+
+    else:
+      data_url = 'http://download.tensorflow.org/models/mobilenet_v1_'
+      data_url += version_string + '_' + size_string + '_frozen.tgz'
+      bottleneck_tensor_name = 'MobilenetV1/Predictions/Reshape:0'
+      resized_input_tensor_name = 'input:0'
+      model_dir_name = 'mobilenet_v1_' + version_string + '_' + size_string
+      model_base_name = 'frozen_graph.pb'
+
     bottleneck_tensor_size = 1001
     input_width = int(size_string)
     input_height = int(size_string)
     input_depth = 3
-    resized_input_tensor_name = 'input:0'
-    if is_quantized:
-      model_base_name = 'quantized_graph.pb'
-    else:
-      model_base_name = 'frozen_graph.pb'
-    model_dir_name = 'mobilenet_v1_' + version_string + '_' + size_string
     model_file_name = os.path.join(model_dir_name, model_base_name)
     input_mean = 127.5
     input_std = 127.5
@@ -933,6 +973,7 @@ def create_model_info(architecture):
       'model_file_name': model_file_name,
       'input_mean': input_mean,
       'input_std': input_std,
+      'quantize_layer': is_quantized,
   }
 
 
@@ -969,7 +1010,7 @@ def main(_):
   # See https://github.com/tensorflow/tensorflow/issues/3047
   tf.logging.set_verbosity(tf.logging.INFO)
 
-  # Prepare necessary directories  that can be used during training
+  # Prepare necessary directories that can be used during training
   prepare_file_system()
 
   # Gather information about the model architecture we'll be using.
@@ -1028,7 +1069,7 @@ def main(_):
     (train_step, cross_entropy, bottleneck_input, ground_truth_input,
      final_tensor) = add_final_training_ops(
          len(image_lists.keys()), FLAGS.final_tensor_name, bottleneck_tensor,
-         model_info['bottleneck_tensor_size'])
+         model_info['bottleneck_tensor_size'], model_info['quantize_layer'])
 
     # Create the operations we need to evaluate the accuracy of our new layer.
     evaluation_step, prediction = add_evaluation_step(
@@ -1128,7 +1169,7 @@ def main(_):
     if FLAGS.print_misclassified_test_images:
       tf.logging.info('=== MISCLASSIFIED TEST IMAGES ===')
       for i, test_filename in enumerate(test_filenames):
-        if predictions[i] != test_ground_truth[i].argmax():
+        if predictions[i] != test_ground_truth[i]:
           tf.logging.info('%70s  %s' %
                           (test_filename,
                            list(image_lists.keys())[predictions[i]]))
@@ -1151,7 +1192,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--output_graph',
       type=str,
-      default='tf_files/retrained_graph.pb',
+      default='output_graph.pb',
       help='Where to save the trained graph.'
   )
   parser.add_argument(
@@ -1172,19 +1213,19 @@ if __name__ == '__main__':
   parser.add_argument(
       '--output_labels',
       type=str,
-      default='tf_files/retrained_labels.txt',
+      default='output_labels.txt',
       help='Where to save the trained graph\'s labels.'
   )
   parser.add_argument(
       '--summaries_dir',
       type=str,
-      default='tf_files/training_summaries/mobilenet_0.50_224',
+      default='./retrain_logs',
       help='Where to save summary logs for TensorBoard.'
   )
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=500,
+      default=4000,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -1208,7 +1249,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--eval_step_interval',
       type=int,
-      default=10,
+      default=200,
       help='How often to evaluate the training results.'
   )
   parser.add_argument(
@@ -1252,7 +1293,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--model_dir',
       type=str,
-      default='tf_files/models/',
+      default='./model',
       help="""\
       Path to classify_image_graph_def.pb,
       imagenet_synset_to_human_label_map.txt, and
@@ -1262,7 +1303,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--bottleneck_dir',
       type=str,
-      default='tf_files/bottlenecks',
+      default='./bottleneck',
       help='Path to cache bottleneck layer values as files.'
   )
   parser.add_argument(
