@@ -20,6 +20,9 @@ apt-get install python-certbot-nginx
 *** Set-up Nginx Reverse Proxy ***
 
 replace the contents of the file in /etc/nginx/sites-available/default with those in the nginx-default file of this repo (misc folder)
+restart nginx using the command
+
+service nginx restart
 
 *** Install Certificate ***
 
