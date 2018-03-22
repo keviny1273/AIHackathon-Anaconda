@@ -1,0 +1,26 @@
+*** First Set a root password ***
+
+*** Install Docker as root ***
+
+wget -qO- https://get.docker.com/ | sh
+
+*** Install nginx ***
+
+apt-get update
+apt-get install nginx
+
+*** Install Certbot ***
+
+apt-get update
+apt-get install software-properties-common
+add-apt-repository ppa:certbot/certbot
+apt-get update
+apt-get install python-certbot-nginx 
+
+*** Set-up Nginx Reverse Proxy ***
+
+*** Install Certificate ***
+
+certbot --authenticator standalone --installer nginx -d ---name---.doai.uk --agree-tos --register-unsafely-without-email
+
+*** Follow instructions in main project to pull and run the docker container.
