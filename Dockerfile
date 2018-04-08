@@ -29,6 +29,7 @@ RUN mkdir /opt/notebooks
 WORKDIR /opt/notebooks
 
 RUN curl "https://raw.githubusercontent.com/keviny1273/AIHackathon-AnacondawithWine/master/Wine.ipynb" > wine.ipynb
+RUN curl "https://raw.githubusercontent.com/keviny1273/AIHackathon-AnacondawithWine/master/Wine%203.ipynb" > wine3.ipynb
 
 RUN mkdir /opt/start
 WORKDIR /opt/start
